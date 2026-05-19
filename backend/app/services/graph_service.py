@@ -56,6 +56,17 @@ class GraphService:
     This makes it testable — in tests, you can inject a mock client.
     """
 
+    def _query_with_max_hops(self, query: str, max_hops: int) -> str:
+        """
+        Neo4j requires variable-length path bounds to be integer literals.
+        Validate before substituting so callers cannot inject Cypher.
+        """
+        max_hops = int(max_hops)
+        if max_hops < 1 or max_hops > 50:
+            raise GraphQueryError("max_hops must be between 1 and 50")
+
+        return query.replace("$max_hops", str(max_hops))
+
     # ===========================================================================
     # HOST OPERATIONS
     # ===========================================================================
@@ -330,11 +341,10 @@ class GraphService:
         max_hops = max_hops or settings.MAX_ATTACK_PATH_HOPS
 
         results = await neo4j_client.execute_read(
-            path_queries.FIND_ALL_ATTACK_PATHS,
+            self._query_with_max_hops(path_queries.FIND_ALL_ATTACK_PATHS, max_hops),
             {
                 "source_id": source_id,
                 "target_id": target_id,
-                "max_hops": max_hops,
                 "limit": limit,
             }
         )
@@ -361,8 +371,8 @@ class GraphService:
         max_hops = max_hops or settings.MAX_ATTACK_PATH_HOPS
 
         results = await neo4j_client.execute_read(
-            path_queries.FIND_PATHS_TO_DATABASE,
-            {"max_hops": max_hops, "limit": limit}
+            self._query_with_max_hops(path_queries.FIND_PATHS_TO_DATABASE, max_hops),
+            {"limit": limit}
         )
 
         logger.info(f"Found {len(results)} paths to database nodes")
@@ -372,8 +382,8 @@ class GraphService:
         """Find highest-risk paths using composite scoring."""
         max_hops = max_hops or settings.MAX_ATTACK_PATH_HOPS
         return await neo4j_client.execute_read(
-            path_queries.FIND_CRITICAL_PATHS,
-            {"max_hops": max_hops, "limit": limit}
+            self._query_with_max_hops(path_queries.FIND_CRITICAL_PATHS, max_hops),
+            {"limit": limit}
         )
 
     async def find_paths_through_vulnerability(
