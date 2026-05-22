@@ -3,41 +3,89 @@ dependencies.py
 ===============
 FastAPI Dependency Injection wiring.
 
-This is where all services are assembled and made available
-to route handlers via FastAPI's Depends() system.
+All services are assembled here and injected into route handlers
+via FastAPI's Depends() system.
 
-HOW DEPENDS() WORKS:
-    @router.get("/hosts")
-    async def get_hosts(service: GraphService = Depends(get_graph_service)):
-        return await service.get_all_hosts()
+ADDING A NEW SERVICE:
+1. Create a get_xxx_service() function here
+2. Import it in the route file
+3. Add it as a parameter: service = Depends(get_xxx_service)
 
-FastAPI sees `Depends(get_graph_service)`, calls get_graph_service(),
-and passes the result as the `service` argument automatically.
-You never call get_graph_service() yourself in route handlers.
-
-WHY THIS PATTERN?
-- Easy to swap implementations (swap real Neo4j for mock in tests)
-- Single place to control how services are created
-- Services get the right clients injected automatically
+TESTING OVERRIDE:
+    app.dependency_overrides[get_graph_service] = lambda: MockGraphService()
 """
 
 from fastapi import Depends
-from app.graph.neo4j_client import neo4j_client, Neo4jClient
-from app.services.graph_service import GraphService
 
+from app.graph.neo4j_client import neo4j_client, Neo4jClient
+from app.vectorstore.qdrant_client import qdrant_manager, QdrantClientManager
+from app.services.graph_service import GraphService
+from app.services.traversal_service import TraversalService
+from app.services.rag_service import RAGService
+from app.services.graphrag_service import GraphRAGService
+
+
+# ---------------------------------------------------------------------------
+# Infrastructure clients
+# ---------------------------------------------------------------------------
 
 def get_neo4j_client() -> Neo4jClient:
     """Provide the Neo4j client singleton."""
     return neo4j_client
 
 
+def get_qdrant_client() -> QdrantClientManager:
+    """Provide the Qdrant client singleton."""
+    return qdrant_manager
+
+
+# ---------------------------------------------------------------------------
+# Service layer
+# ---------------------------------------------------------------------------
+
 def get_graph_service(
     client: Neo4jClient = Depends(get_neo4j_client),
 ) -> GraphService:
     """
-    Provide a GraphService instance with the Neo4j client injected.
-
-    In tests, you can override this:
-        app.dependency_overrides[get_graph_service] = lambda: MockGraphService()
+    Provide GraphService with Neo4j client injected.
+    Used by: api/v1/graph.py
     """
     return GraphService()
+
+
+def get_traversal_service(
+    client: Neo4jClient = Depends(get_neo4j_client),
+) -> TraversalService:
+    """
+    Provide TraversalService with Neo4j client injected.
+    Used by: api/v1/traversal.py
+    """
+    return TraversalService()
+
+
+def get_rag_service(
+    client: QdrantClientManager = Depends(get_qdrant_client),
+) -> RAGService:
+    """
+    Provide RAGService with Qdrant client injected.
+    Used by: api/v1/rag.py
+    """
+    return RAGService()
+
+
+def get_graphrag_service(
+    neo4j: Neo4jClient = Depends(get_neo4j_client),
+    qdrant: QdrantClientManager = Depends(get_qdrant_client),
+) -> GraphRAGService:
+    """
+    Provide GraphRAGService with both clients injected.
+    Used by: api/v1/rag.py (analyze endpoint)
+    """
+    from app.services.graph_service import graph_service
+    from app.services.traversal_service import traversal_service
+    from app.services.rag_service import rag_service
+    return GraphRAGService(
+        graph_svc=graph_service,
+        traversal_svc=traversal_service,
+        rag_svc=rag_service,
+    )
