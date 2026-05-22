@@ -1,16 +1,14 @@
 """
-main.py
-=======
-FastAPI application entry point.
+main.py — FastAPI application entry point.
 
-WHAT HAPPENS AT STARTUP:
-1. lifespan() runs — connects to Neo4j, Qdrant, Redis
-2. Schema is initialized — constraints and indexes created
-3. FastAPI app is ready to serve requests
+STARTUP ORDER:
+1. Neo4j connects + schema initialized
+2. Qdrant connects + collections initialized
+3. App ready to serve requests
 
-WHAT HAPPENS AT SHUTDOWN:
-1. lifespan() cleanup runs — all connections closed cleanly
-2. No data loss, no hanging connections
+SHUTDOWN:
+1. Neo4j disconnects
+2. Qdrant disconnects
 """
 
 import logging
@@ -27,60 +25,51 @@ from app.core.exceptions import (
 )
 from app.graph.neo4j_client import neo4j_client
 from app.graph.schema.constraints import schema_manager
+from app.vectorstore.qdrant_client import qdrant_manager
+from app.vectorstore.collections import initialize_collections
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Lifespan — startup and shutdown logic
-# ---------------------------------------------------------------------------
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    FastAPI lifespan context manager.
-    Code before `yield` runs at startup.
-    Code after `yield` runs at shutdown.
-    """
-    # ── STARTUP ──────────────────────────────────────────────────────────
-    logger.info(f"Starting {settings.APP_NAME} in {settings.APP_ENV} mode")
+    """Startup and shutdown lifecycle."""
 
-    # Connect to Neo4j
+    # ── STARTUP ──────────────────────────────────────────────────────────
+    logger.info(f"Starting {settings.APP_NAME} [{settings.APP_ENV}]")
+
+    # Neo4j
     logger.info("Connecting to Neo4j...")
     await neo4j_client.connect()
-
-    # Initialize graph schema (idempotent — safe to run every startup)
-    logger.info("Initializing graph schema...")
     await schema_manager.initialize()
 
-    # TODO: Connect to Qdrant (added in vectorstore module)
-    # await qdrant_client.connect()
+    # Qdrant
+    logger.info("Connecting to Qdrant...")
+    await qdrant_manager.connect()
+    await initialize_collections()
 
-    logger.info(f"{settings.APP_NAME} startup complete")
+    logger.info(f"{settings.APP_NAME} startup complete — ready to serve")
 
-    yield  # ← Application runs here, handling requests
+    yield  # Application runs here
 
     # ── SHUTDOWN ─────────────────────────────────────────────────────────
     logger.info("Shutting down...")
     await neo4j_client.disconnect()
-    logger.info("All connections closed. Goodbye.")
+    await qdrant_manager.disconnect()
+    logger.info("All connections closed.")
 
-
-# ---------------------------------------------------------------------------
-# Application factory
-# ---------------------------------------------------------------------------
 
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.APP_NAME,
         description="AI-powered cyber attack path analysis platform",
         version="0.1.0",
-        docs_url="/docs",           # Swagger UI at /docs
-        redoc_url="/redoc",         # ReDoc at /redoc
+        docs_url="/docs",
+        redoc_url="/redoc",
         lifespan=lifespan,
     )
 
-    # ── Middleware ────────────────────────────────────────────────────────
+    # Middleware
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.FRONTEND_URL, "http://localhost:3000"],
@@ -89,14 +78,15 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # ── Exception Handlers ────────────────────────────────────────────────
+    # Exception handlers
     app.add_exception_handler(AttackGraphException, attackgraph_exception_handler)
     app.add_exception_handler(Exception, generic_exception_handler)
 
-    # ── Routers ───────────────────────────────────────────────────────────
-    from app.api.v1 import graph, health, traversal
+    # Routers
+    from app.api.v1 import graph, health, traversal, rag
     app.include_router(graph.router,     prefix="/api/v1/graph",     tags=["Graph"])
     app.include_router(traversal.router, prefix="/api/v1/traversal", tags=["Traversal"])
+    app.include_router(rag.router,       prefix="/api/v1/rag",       tags=["RAG"])
     app.include_router(health.router,    prefix="/api/v1",           tags=["Health"])
 
     return app
@@ -104,11 +94,6 @@ def create_app() -> FastAPI:
 
 app = create_app()
 
-
-# ---------------------------------------------------------------------------
-# Run directly with: python -m app.main
-# Or with uvicorn: uvicorn app.main:app --reload
-# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

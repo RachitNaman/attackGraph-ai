@@ -19,7 +19,8 @@ Zero business logic. Zero Cypher. Zero database calls.
 """
 
 from fastapi import APIRouter, Depends, Query, Path
-from app.services.traversal_service import TraversalService, traversal_service
+from app.services.traversal_service import TraversalService
+from app.dependencies import get_traversal_service
 from app.models.responses.traversal import (
     ReachableSystemsResponse,
     AllShortestPathsResponse,
@@ -31,14 +32,6 @@ from app.models.responses.traversal import (
 )
 
 router = APIRouter()
-
-
-# ---------------------------------------------------------------------------
-# Dependency — provides TraversalService to all route handlers
-# ---------------------------------------------------------------------------
-
-def get_traversal_service() -> TraversalService:
-    return traversal_service
 
 
 # ===========================================================================
