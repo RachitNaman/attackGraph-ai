@@ -83,6 +83,7 @@ class EmbeddingService:
                 model=settings.GEMINI_EMBEDDING_MODEL,
                 content=text.strip(),
                 task_type=task_type,
+                output_dimensionality=settings.EMBEDDING_DIMENSIONS,
             )
             embedding = result["embedding"]
             logger.debug(f"Embedded text ({len(text)} chars) -> {len(embedding)}d vector")

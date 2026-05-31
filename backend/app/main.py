@@ -83,10 +83,11 @@ def create_app() -> FastAPI:
     app.add_exception_handler(Exception, generic_exception_handler)
 
     # Routers
-    from app.api.v1 import graph, health, traversal, rag
+    from app.api.v1 import graph, health, traversal, rag, analysis
     app.include_router(graph.router,     prefix="/api/v1/graph",     tags=["Graph"])
     app.include_router(traversal.router, prefix="/api/v1/traversal", tags=["Traversal"])
     app.include_router(rag.router,       prefix="/api/v1/rag",       tags=["RAG"])
+    app.include_router(analysis.router,   prefix="/api/v1/analysis",   tags=["Analysis"])
     app.include_router(health.router,    prefix="/api/v1",           tags=["Health"])
 
     return app
