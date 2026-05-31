@@ -1,177 +1,181 @@
 # AttackGraph AI
 
-An intelligent attack path analysis system that combines Neo4j graph databases, Qdrant vector search, and generative AI to identify and analyze security vulnerabilities and attack paths.
+AttackGraph AI is an AI-powered cyber attack path analysis platform.
+It combines:
+- **Neo4j** for attack graph modeling
+- **Qdrant** for semantic search over CVEs / asset context / threat intel
+- **Google Gemini** (via LangChain + LangGraph) for natural-language analysis and recommendations
 
-## Overview
+> Note: The `frontend/` in this repository is currently a **Git submodule** (not regular source code tracked inside this repo). The backend is fully contained under `backend/`.
 
-AttackGraph AI is a full-stack application designed to:
-- Map network assets and vulnerabilities as a graph database
-- Identify potential attack paths using AI-powered analysis
-- Provide risk scoring and remediation recommendations
-- Enable security teams to visualize and understand attack surfaces
+## What it does
 
-## Tech Stack
+- Ingest and represent assets, services, vulnerabilities, and relationships as a graph
+- Compute attack paths, reachable systems, blast radius, and privilege escalation chains
+- Enrich results with semantic CVE and threat intel context using a vector database
+- Generate AI explanations, executive summaries, and remediation recommendations
 
-### Backend
-- **Framework**: FastAPI (Python)
-- **Graph Database**: Neo4j
-- **Vector Database**: Qdrant
-- **AI/LLM**: Google Gemini API with LangChain
-- **Async Tasks**: Redis (optional)
+---
 
-### Frontend
-- **Framework**: Next.js (TypeScript)
-- **Styling**: Tailwind CSS
-- **UI Components**: Custom React components
-
-### Infrastructure
-- **Containerization**: Docker & Docker Compose
-- **Environment Management**: Python venv
-
-## Quick Start
-
-### Prerequisites
-- Docker & Docker Compose
-- Python 3.10+
-- Node.js 18+
-- Git
-
-### Setup with Docker
-
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd AttackGraph
-   ```
-
-2. **Configure environment**
-   ```bash
-   cp attackgraph-ai/backend/.env.example attackgraph-ai/backend/.env
-   # Edit .env with your API keys and credentials
-   ```
-
-3. **Start services**
-   ```bash
-   docker-compose up -d
-   ```
-
-4. **Access the application**
-   - Frontend: http://localhost:3000
-   - Backend API: http://localhost:8000/docs
-   - Neo4j Browser: http://localhost:7474
-   - Qdrant Dashboard: http://localhost:6333/dashboard
-
-### Local Development
-
-#### Backend
-```bash
-cd attackgraph-ai/backend
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\Activate.ps1
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Create .env file
-cp .env.example .env
-
-# Run server
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-#### Frontend
-```bash
-cd attackgraph-ai/frontend
-
-# Install dependencies
-npm install
-
-# Run dev server
-npm run dev
-```
-
-## Project Structure
+## Repository layout
 
 ```
-AttackGraph/
-├── attackgraph-ai/
-│   ├── backend/
-│   │   ├── app/
-│   │   │   ├── agents/        # AI agent definitions
-│   │   │   ├── api/           # API route handlers
-│   │   │   ├── core/          # Core business logic
-│   │   │   ├── graph/         # Graph database queries
-│   │   │   ├── ingestion/     # Data ingestion pipelines
-│   │   │   ├── models/        # Pydantic models
-│   │   │   ├── prompts/       # LLM prompt templates
-│   │   │   ├── services/      # Business services
-│   │   │   ├── utils/         # Utility functions
-│   │   │   └── vectorstore/   # Vector DB operations
-│   │   ├── requirements.txt
-│   │   └── .env.example
-│   ├── frontend/
-│   │   ├── app/               # Next.js pages
-│   │   ├── public/            # Static assets
-│   │   ├── package.json
-│   │   └── tsconfig.json
-│   └── docs/                  # Documentation
-├── docker-compose.yml
+.
+├── backend/                 # FastAPI backend (Neo4j + Qdrant + Gemini)
+├── frontend/                # Git submodule (UI code lives in a separate repo)
 └── README.md
 ```
 
-## Configuration
+---
 
-### Required Environment Variables
-- `GEMINI_API_KEY`: Google Gemini API key (get from https://aistudio.google.com/app/apikey)
-- `NEO4J_PASSWORD`: Neo4j database password
-- `SECRET_KEY`: Application secret key (min 32 chars)
+## Backend (FastAPI)
 
-### Optional Environment Variables
-- `LANGCHAIN_API_KEY`: LangSmith tracing (for debugging)
-- `QDRANT_API_KEY`: Qdrant cloud API key (if using cloud)
+### Tech stack
 
-See `attackgraph-ai/backend/.env.example` for all configuration options.
+- **FastAPI** + **Uvicorn**
+- **Neo4j** (graph DB)
+- **Qdrant** (vector DB)
+- **Gemini**: `google-generativeai` + `langchain-google-genai`
+- **Orchestration**: LangChain + LangGraph
+- Optional: **Redis / Celery** (dependencies included)
 
-## API Documentation
+### Key folders
 
-Once the backend is running, visit http://localhost:8000/docs for interactive API documentation (Swagger UI).
+```
+backend/
+├── app/
+│   ├── api/v1/              # Route handlers (HTTP layer)
+│   ├── agents/              # LangGraph agent(s)
+│   ├── core/                # Settings, logging, exceptions
+│   ├── graph/               # Neo4j client + schema/constraints
+│   ├── models/              # Pydantic request/response models
+│   ├── prompts/             # Prompt templates
+│   ├── services/            # Business logic (graph traversal, scoring, RAG)
+│   └── vectorstore/         # Qdrant client + collections
+├── scripts/                 # Helper scripts (ingestion/ops)
+├── requirements.txt
+└── .env.example
+```
 
-### Key Endpoints
-- `GET /health` - Health check
-- `GET /` - Root endpoint
-- API v1 endpoints under `/api/v1/`
+### App lifecycle
 
-## Development Guidelines
+On startup (`backend/app/main.py`):
+1. Connect to **Neo4j** and initialize schema/constraints
+2. Connect to **Qdrant** and initialize collections
 
-- Follow PEP 8 for Python code
-- Use TypeScript for all frontend code
-- Run linters before committing: `eslint` (frontend)
-- Write tests for new features
+On shutdown:
+- Cleanly disconnect from Neo4j and Qdrant
 
-## Contributing
+### Configuration
 
-1. Create a feature branch: `git checkout -b feature/your-feature`
-2. Commit changes: `git commit -am 'Add feature'`
-3. Push to branch: `git push origin feature/your-feature`
-4. Submit a pull request
+Create your env file:
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+Most important variables:
+
+- `GEMINI_API_KEY` — required for AI analysis endpoints
+- `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`
+- `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_API_KEY` (optional for local)
+- `FRONTEND_URL` — used for CORS
+
+See: `backend/.env.example` for the full list.
+
+### Run backend locally
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+cp .env.example .env
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+API docs:
+- Swagger: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+
+---
+
+## API overview (v1)
+
+Base path: `/api/v1`
+
+### Health
+- `GET /health` — checks Neo4j + Qdrant connectivity
+
+### Graph
+Prefix: `/graph`
+- `GET /graph/summary` — counts by node/relationship type
+- `GET /graph/hosts` — paginated hosts
+- `GET /graph/hosts/internet-facing` — internet-exposed hosts
+- `GET /graph/hosts/{host_id}` — host detail (services + vulns)
+- `GET /graph/hosts/{host_id}/blast-radius` — blast radius (simple)
+- `GET /graph/attack-paths` — paths from source to target (optional)
+- `GET /graph/attack-paths/to-database` — paths from internet → any DB
+- `GET /graph/attack-paths/critical` — highest-risk ranked paths
+- `GET /graph/risk/highest-risk-nodes` — hosts ranked by risk score
+- `GET /graph/vulnerabilities/exploitable` — exploitable vulns
+
+### Traversal
+Prefix: `/traversal`
+- `GET /traversal/reachable/{host_id}` — all reachable nodes within hops
+- `GET /traversal/reachable/{host_id}/by-type/{node_type}` — filter reachable by type
+- `GET /traversal/reachable/reverse/{target_id}` — entry points that can reach target
+- `GET /traversal/shortest-path` — shortest path between two nodes
+- `GET /traversal/shortest-path/all` — all equally-short paths
+- `GET /traversal/vulnerable-hosts` — hosts ranked by composite risk score
+- `GET /traversal/vulnerable-hosts/unpatched` — hosts with unapplied patches
+- `GET /traversal/blast-radius/{host_id}` — detailed blast radius report
+- `GET /traversal/escalation/chains` — privilege escalation chains
+- `GET /traversal/escalation/to-root` — internet entry → root/admin paths
+- `GET /traversal/escalation/service-accounts` — service-account escalation
+- `GET /traversal/escalation/cross-subnet` — cross-subnet escalation
+
+### RAG (Vector search + Graph RAG)
+Prefix: `/rag`
+- `POST /rag/analyze` — build Graph RAG context (paths + Qdrant enrichment)
+- `GET /rag/search/cves` — semantic CVE search
+- `GET /rag/search/assets` — semantic asset search
+- `GET /rag/search/intel` — semantic threat intel search
+- `GET /rag/search/all` — search across all vector collections
+- `POST /rag/ingest/cve` — store CVE into Qdrant
+- `POST /rag/ingest/intel` — store threat intel into Qdrant
+
+### AI Analysis (LangGraph agent)
+Prefix: `/analysis`
+- `POST /analysis/analyze` — full AI attack-path analysis (JSON response)
+- `POST /analysis/analyze/stream` — streaming analysis via SSE
+
+---
+
+## Frontend
+
+`frontend/` is configured as a **Git submodule** in this repo.
+
+To document the frontend properly here, we need one of the following:
+1. The **frontend submodule repository URL** (from `.gitmodules`), or
+2. You convert the submodule into actual code committed in this repo.
+
+Once the submodule target repo is known, the README can include:
+- Pages/routes and UI features
+- API integration details (base URL, SSE streaming)
+- Environment variables and dev scripts
+
+---
 
 ## Troubleshooting
 
-### Backend issues
-- **Uvicorn error "Attribute 'app' not found"**: Ensure `app/main.py` has a FastAPI instance named `app`
-- **Neo4j connection refused**: Check Neo4j container is running and credentials are correct
-- **Gemini API errors**: Verify your API key is valid and has quota
+- **CORS errors**: ensure `FRONTEND_URL` in `backend/.env` matches the frontend origin.
+- **Neo4j/Qdrant degraded health**: verify services are running and creds/hosts are correct.
+- **Gemini errors**: confirm `GEMINI_API_KEY` is set and has quota.
 
-### Frontend issues
-- **Port 3000 already in use**: Change port or kill existing process
-- **Node modules issues**: Delete `node_modules` and `package-lock.json`, then run `npm install`
-
-## Support
-
-For issues or questions, please open a GitHub issue or contact the development team.
+---
 
 ## License
 
-[Add your license here]
+Add your license here.
