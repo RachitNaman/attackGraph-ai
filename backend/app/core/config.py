@@ -45,8 +45,8 @@ class Settings(BaseSettings):
 
     # Gemini
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-1.5-pro"
-    GEMINI_EMBEDDING_MODEL: str = "models/text-embedding-004"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_EMBEDDING_MODEL: str = "models/gemini-embedding-001"
     GEMINI_TEMPERATURE: float = 0.1
     GEMINI_MAX_TOKENS: int = 8192
 
@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
 
     # Embeddings
-    EMBEDDING_DIMENSIONS: int = 768
+    EMBEDDING_DIMENSIONS: int = 3072
 
     # Attack Analysis
     MAX_ATTACK_PATH_HOPS: int = 8
