@@ -26,10 +26,10 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
 
     # Neo4j
- NEO4J_URI=neo4j+s://0b7ca4f2.databases.neo4j.io
-NEO4J_USERNAME=0b7ca4f2
-NEO4J_PASSWORD=oAm0MrzT6HfVPubAtEszWGboUtdf-ScPBjk-dhdX_XM
-NEO4J_DATABASE=0b7ca4f2
+    NEO4J_URI: str = "bolt://localhost:7687"
+    NEO4J_USERNAME: str = "neo4j"
+    NEO4J_PASSWORD: str = "attackgraph123"
+    NEO4J_DATABASE: str = "neo4j"
 
     # Qdrant
     QDRANT_HOST: str = "localhost"
