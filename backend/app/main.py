@@ -74,7 +74,7 @@ def create_app() -> FastAPI:
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
-        "https://your-app.vercel.app",      # add this
+        "https://attack-graph-muii9lswv-rachitnamans-projects.vercel.app/dashboard",      # add this
         settings.FRONTEND_URL,
     ],
     allow_credentials=True,
