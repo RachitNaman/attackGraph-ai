@@ -23,7 +23,7 @@ export default function AttackGraphDashboard() {
       setActiveView("analysis");
 
       try {
-        const response = await fetch("http://localhost:8000/api/v1/analysis/analyze", {
+       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/analysis/analyze`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query, max_hops: 8 }),
