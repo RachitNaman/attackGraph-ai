@@ -11,7 +11,7 @@
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
     "@tanstack/react-query": "^5.100.10",
-    "@xyflow/react": "^12.10.2",
+    "@xyflow/react": "^12.11.0",
     "axios": "^1.16.0",
     "clsx": "^2.1.1",
     "lucide-react": "^1.14.0",
