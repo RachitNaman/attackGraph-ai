@@ -72,12 +72,8 @@ def create_app() -> FastAPI:
     # Middleware
     app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://attack-graph-30abdji1g-rachitnamans-projects.vercel.app",      # add this
-        settings.FRONTEND_URL,
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
