@@ -16,6 +16,7 @@ TESTING OVERRIDE:
 """
 
 from fastapi import Depends
+from fastapi.security import OAuth2PasswordBearer
 
 from app.graph.neo4j_client import neo4j_client, Neo4jClient
 from app.vectorstore.qdrant_client import qdrant_manager, QdrantClientManager
@@ -23,6 +24,8 @@ from app.services.graph_service import GraphService
 from app.services.traversal_service import TraversalService
 from app.services.rag_service import RAGService
 from app.services.graphrag_service import GraphRAGService
+from app.services.account_service import account_service
+from app.core.security import decode_access_token
 
 
 # ---------------------------------------------------------------------------
@@ -89,3 +92,29 @@ def get_graphrag_service(
         traversal_svc=traversal_service,
         rag_svc=rag_service,
     )
+
+
+# ---------------------------------------------------------------------------
+# Auth dependency
+# ---------------------------------------------------------------------------
+
+# tokenUrl is just used to populate FastAPI's /docs "Authorize" button —
+# it points Swagger UI at our actual login endpoint. It doesn't route
+# traffic itself.
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+
+
+async def get_current_account(token: str = Depends(oauth2_scheme)) -> dict:
+    """
+    Decode the bearer token and load the Account it refers to.
+
+    Use this as a dependency on any route that requires a logged-in
+    user:
+        account: dict = Depends(get_current_account)
+
+    Raises AuthError (-> 401 via the global exception handler) if the
+    token is missing, invalid, expired, or refers to a deleted account.
+    """
+    payload = decode_access_token(token)
+    account_id = payload["sub"]
+    return await account_service.get_by_id(account_id)

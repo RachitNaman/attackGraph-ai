@@ -111,6 +111,16 @@ class ParseError(AttackGraphException):
 
 
 # ---------------------------------------------------------------------------
+# Auth / Account Exceptions
+# ---------------------------------------------------------------------------
+
+class AccountExistsError(AttackGraphException):
+    """Registration attempted with an email that's already taken."""
+    def __init__(self, message: str):
+        super().__init__(message, code="ACCOUNT_EXISTS")
+
+
+# ---------------------------------------------------------------------------
 # FastAPI Exception Handlers
 # Register these in main.py using app.add_exception_handler()
 # ---------------------------------------------------------------------------
@@ -127,6 +137,8 @@ async def attackgraph_exception_handler(request: Request, exc: AttackGraphExcept
         "AGENT_ERROR": 500,
         "INGESTION_ERROR": 422,
         "PARSE_ERROR": 422,
+        "AUTH_ERROR": 401,
+        "ACCOUNT_EXISTS": 409,
     }
 
     status_code = status_map.get(exc.code, 500)

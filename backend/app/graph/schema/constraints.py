@@ -60,6 +60,8 @@ NODE_CONSTRAINTS = [
     ("User",          "id",  "user_id_unique"),
     ("Database",      "id",  "database_id_unique"),
     ("Firewall",      "id",  "firewall_id_unique"),
+    ("Account",       "id",  "account_id_unique"),
+    ("Account",       "email", "account_email_unique"),
 ]
 
 # ---------------------------------------------------------------------------
