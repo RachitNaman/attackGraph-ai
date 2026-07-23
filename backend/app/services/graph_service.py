@@ -131,11 +131,12 @@ class GraphService:
             logger.error(f"Error creating host {ip_address}: {e}")
             raise
 
-    async def get_host_by_id(self, host_id: str) -> HostResponse:
-        """Retrieve a single host with its services and vulnerabilities."""
+    async def get_host_by_id(self, host_id: str, owner_id: str) -> HostResponse:
+        """Retrieve a single host with its services and vulnerabilities.
+        Scoped to owner_id so accounts can't read each other's hosts."""
         results = await neo4j_client.execute_read(
             asset_queries.GET_HOST_BY_ID,
-            {"id": host_id}
+            {"id": host_id, "owner_id": owner_id}
         )
 
         if not results:
@@ -148,11 +149,11 @@ class GraphService:
             vulnerabilities=record.get("vulnerabilities", [])
         )
 
-    async def get_host_by_ip(self, ip_address: str) -> HostResponse:
-        """Retrieve a host by its IP address."""
+    async def get_host_by_ip(self, ip_address: str, owner_id: str) -> HostResponse:
+        """Retrieve a host by its IP address, scoped to owner_id."""
         results = await neo4j_client.execute_read(
             asset_queries.GET_HOST_BY_IP,
-            {"ip_address": ip_address}
+            {"ip_address": ip_address, "owner_id": owner_id}
         )
 
         if not results:
@@ -160,18 +161,19 @@ class GraphService:
 
         return HostResponse.from_neo4j(results[0]["h"])
 
-    async def get_all_hosts(self, skip: int = 0, limit: int = 100) -> list[HostResponse]:
-        """Retrieve paginated list of all hosts."""
+    async def get_all_hosts(self, owner_id: str, skip: int = 0, limit: int = 100) -> list[HostResponse]:
+        """Retrieve paginated list of hosts belonging to owner_id."""
         results = await neo4j_client.execute_read(
             asset_queries.GET_ALL_HOSTS,
-            {"skip": skip, "limit": limit}
+            {"owner_id": owner_id, "skip": skip, "limit": limit}
         )
         return [HostResponse.from_neo4j(r["h"], vuln_count=r.get("vuln_count", 0)) for r in results]
 
-    async def get_internet_facing_hosts(self) -> list[HostResponse]:
-        """Get all hosts directly exposed to the internet — the primary attack surface."""
+    async def get_internet_facing_hosts(self, owner_id: str) -> list[HostResponse]:
+        """Get owner_id's hosts directly exposed to the internet — the primary attack surface."""
         results = await neo4j_client.execute_read(
-            asset_queries.GET_INTERNET_FACING_HOSTS
+            asset_queries.GET_INTERNET_FACING_HOSTS,
+            {"owner_id": owner_id}
         )
         return [
             HostResponse.from_neo4j(r["h"], services=r.get("services", []), vuln_count=r.get("vuln_count", 0))
@@ -423,15 +425,23 @@ class GraphService:
     # BULK INGESTION OPERATIONS
     # ===========================================================================
 
-    async def bulk_ingest_hosts(self, hosts: list[dict]) -> int:
+    async def bulk_ingest_hosts(self, hosts: list[dict], owner_id: str) -> int:
         """
-        Ingest a large batch of hosts in a single transaction.
+        Ingest a large batch of hosts in a single transaction, scoped to
+        the submitting account.
+
+        Host IDs are namespaced with owner_id ("{owner_id}:{original_id}")
+        because Host.id has a global uniqueness constraint — without this,
+        two different accounts submitting a host called "host-1" would
+        collide and one user's data could overwrite another's.
 
         Call this from the ingestion service after parsing Nmap output.
         Much faster than calling create_host() in a loop.
 
         Args:
             hosts: List of host dicts matching the BULK_MERGE_HOSTS query schema
+            owner_id: The authenticated account's id — every host is tagged
+                      with this so reads can be scoped per-tenant
 
         Returns:
             Number of hosts merged
@@ -439,12 +449,9 @@ class GraphService:
         if not hosts:
             return 0
 
-        # Add deterministic IDs if not present
         for host in hosts:
-            if "id" not in host:
-                host["id"] = f"host-{host['ip_address'].replace('.', '-')}"
-            # Set defaults for optional fields
-            host.setdefault("hostname", host["ip_address"])
+            host["id"] = f"{owner_id}:{host['id']}"
+            host.setdefault("hostname", host.get("ip_address", ""))
             host.setdefault("os", "")
             host.setdefault("subnet", "")
             host.setdefault("is_internet_facing", False)
@@ -452,34 +459,99 @@ class GraphService:
 
         results = await neo4j_client.execute_write(
             asset_queries.BULK_MERGE_HOSTS,
-            {"rows": hosts}
+            {"rows": hosts, "owner_id": owner_id}
         )
 
         merged = results[0].get("merged_count", 0) if results else len(hosts)
-        logger.info(f"Bulk ingested {merged} hosts")
+        logger.info(f"Bulk ingested {merged} hosts for owner {owner_id}")
         return merged
 
-    async def bulk_ingest_vulnerabilities(self, vulnerabilities: list[dict]) -> int:
-        """Ingest a batch of vulnerabilities in a single transaction."""
+    async def bulk_ingest_services(self, services: list[dict], owner_id: str) -> int:
+        """
+        Ingest a batch of services and link each to its host with RUNS.
+
+        Services aren't directly owner-tagged — they're only ever reached
+        by traversing from an owner-scoped Host, so scoping the Host is
+        sufficient to isolate tenants. We DO namespace host_id here so the
+        RUNS relationship targets the right (namespaced) Host node.
+        """
+        if not services:
+            return 0
+
+        rows_for_merge = []
+        rows_for_link = []
+        for svc in services:
+            svc = dict(svc)
+            host_id = f"{owner_id}:{svc.pop('host_id')}"
+            svc.setdefault("name", "")
+            svc.setdefault("port", None)
+            svc.setdefault("protocol", "tcp")
+            svc.setdefault("version", "")
+            svc.setdefault("banner", "")
+            svc.setdefault("is_encrypted", False)
+            rows_for_merge.append(svc)
+            rows_for_link.append({"host_id": host_id, "service_id": svc["id"]})
+
+        await neo4j_client.execute_write(
+            asset_queries.BULK_MERGE_SERVICES, {"rows": rows_for_merge}
+        )
+        results = await neo4j_client.execute_write(
+            asset_queries.BULK_CREATE_RUNS_RELS, {"rows": rows_for_link}
+        )
+
+        merged = results[0].get("merged_count", 0) if results else len(services)
+        logger.info(f"Bulk ingested {merged} services for owner {owner_id}")
+        return merged
+
+    async def bulk_ingest_vulnerabilities(self, vulnerabilities: list[dict], owner_id: str) -> int:
+        """
+        Ingest a batch of vulnerabilities and link each to its host.
+
+        Vulnerability nodes themselves are NOT owner-scoped — a CVE is
+        shared, global knowledge (e.g. CVE-2024-1234 means the same thing
+        regardless of who reports it). Only the HAS_VULNERABILITY edge to
+        a specific (owner-scoped) Host encodes "this vuln affects MY host".
+        """
         if not vulnerabilities:
             return 0
 
+        rows_for_merge = []
+        rows_for_link = []
         for vuln in vulnerabilities:
-            if "id" not in vuln:
+            vuln = dict(vuln)
+            host_id = f"{owner_id}:{vuln.pop('host_id')}"
+            if not vuln.get("id"):
                 vuln["id"] = f"vuln-{vuln['cve_id'].lower()}"
             vuln.setdefault("description", "")
             vuln.setdefault("cvss_score", 0.0)
+            vuln.setdefault("cvss_vector", "")
             vuln.setdefault("severity", "UNKNOWN")
+            vuln.setdefault("cwe_id", "")
+            vuln.setdefault("affected_component", "")
             vuln.setdefault("is_exploitable", False)
             vuln.setdefault("has_public_exploit", False)
+            vuln.setdefault("exploit_maturity", "unproven")
+            vuln.setdefault("patch_available", False)
+            vuln.setdefault("published_date", "")
+            rows_for_merge.append(vuln)
+            rows_for_link.append({
+                "host_id": host_id,
+                "cve_id": vuln["cve_id"],
+                "scanner": "user-submitted",
+                "confirmed": True,
+            })
 
         results = await neo4j_client.execute_write(
             asset_queries.BULK_MERGE_VULNERABILITIES,
-            {"rows": vulnerabilities}
+            {"rows": rows_for_merge}
+        )
+        await neo4j_client.execute_write(
+            asset_queries.BULK_CREATE_HOST_VULNERABILITY_RELS,
+            {"rows": rows_for_link}
         )
 
         merged = results[0].get("merged_count", 0) if results else len(vulnerabilities)
-        logger.info(f"Bulk ingested {merged} vulnerabilities")
+        logger.info(f"Bulk ingested {merged} vulnerabilities for owner {owner_id}")
         return merged
 
     async def bulk_link_vulnerabilities(self, links: list[dict]) -> int:
@@ -504,6 +576,27 @@ class GraphService:
         merged = results[0].get("merged_count", 0) if results else len(links)
         logger.info(f"Bulk linked {merged} host-vulnerability relationships")
         return merged
+
+    async def ingest_topology(
+        self,
+        owner_id: str,
+        hosts: list[dict],
+        services: list[dict],
+        vulnerabilities: list[dict],
+    ) -> dict:
+        """
+        Single entry point for the /graph/ingest route. Hosts must be
+        ingested first since services/vulnerabilities link to them by
+        (unnamespaced) host_id.
+        """
+        hosts_merged = await self.bulk_ingest_hosts(hosts, owner_id)
+        services_merged = await self.bulk_ingest_services(services, owner_id)
+        vulns_merged = await self.bulk_ingest_vulnerabilities(vulnerabilities, owner_id)
+        return {
+            "hosts_merged": hosts_merged,
+            "services_merged": services_merged,
+            "vulnerabilities_merged": vulns_merged,
+        }
 
     # ===========================================================================
     # GRAPH STATISTICS

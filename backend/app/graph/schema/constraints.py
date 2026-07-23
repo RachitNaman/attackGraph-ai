@@ -74,6 +74,7 @@ ADDITIONAL_INDEXES = [
     ("Host",          "hostname",    "host_hostname_idx"),
     ("Host",          "subnet",      "host_subnet_idx"),
     ("Host",          "os",          "host_os_idx"),
+    ("Host",          "owner_id",    "host_owner_idx"),
 
     # Service indexes
     ("Service",       "port",        "service_port_idx"),

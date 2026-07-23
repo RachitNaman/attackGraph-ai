@@ -9,12 +9,13 @@ No business logic. No Cypher queries. No database calls.
 
 from fastapi import APIRouter, Depends, Query
 from app.services.graph_service import GraphService
-from app.dependencies import get_graph_service
+from app.dependencies import get_graph_service, get_current_account
 from app.models.responses.graph import (
     HostResponse,
     AttackPathResponse,
     GraphSummaryResponse,
 )
+from app.models.requests.ingestion import TopologyIngestRequest, IngestResponse
 
 router = APIRouter()
 
@@ -27,31 +28,58 @@ async def get_graph_summary(
     return await service.get_graph_summary()
 
 
+@router.post("/ingest", response_model=IngestResponse)
+async def ingest_topology(
+    payload: TopologyIngestRequest,
+    service: GraphService = Depends(get_graph_service),
+    account: dict = Depends(get_current_account),
+):
+    """
+    Submit a network topology (hosts, services, vulnerabilities) as JSON.
+    Everything submitted is scoped to the authenticated account — other
+    accounts can never see or query it.
+    """
+    result = await service.ingest_topology(
+        owner_id=account["id"],
+        hosts=[h.model_dump() for h in payload.hosts],
+        services=[s.model_dump() for s in payload.services],
+        vulnerabilities=[v.model_dump() for v in payload.vulnerabilities],
+    )
+    return IngestResponse(
+        hosts_merged=result["hosts_merged"],
+        services_merged=result["services_merged"],
+        vulnerabilities_merged=result["vulnerabilities_merged"],
+    )
+
+
 @router.get("/hosts", response_model=list[HostResponse])
 async def get_hosts(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, le=200),
     service: GraphService = Depends(get_graph_service),
+    account: dict = Depends(get_current_account),
 ):
-    """Get paginated list of all hosts."""
-    return await service.get_all_hosts(skip=skip, limit=limit)
+    """Get paginated list of hosts belonging to the authenticated account."""
+    return await service.get_all_hosts(owner_id=account["id"], skip=skip, limit=limit)
 
 
 @router.get("/hosts/internet-facing", response_model=list[HostResponse])
 async def get_internet_facing_hosts(
     service: GraphService = Depends(get_graph_service),
+    account: dict = Depends(get_current_account),
 ):
-    """Get all hosts directly exposed to the internet (primary attack surface)."""
-    return await service.get_internet_facing_hosts()
+    """Get the authenticated account's hosts directly exposed to the internet."""
+    return await service.get_internet_facing_hosts(owner_id=account["id"])
 
 
 @router.get("/hosts/{host_id}", response_model=HostResponse)
 async def get_host(
     host_id: str,
     service: GraphService = Depends(get_graph_service),
+    account: dict = Depends(get_current_account),
 ):
     """Get a single host with its services and vulnerabilities."""
-    return await service.get_host_by_id(host_id)
+    return await service.get_host_by_id(host_id, owner_id=account["id"])
 
 
 @router.get("/hosts/{host_id}/blast-radius")

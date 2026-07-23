@@ -19,6 +19,7 @@ MERGE vs CREATE explained:
 MERGE_HOST = """
 MERGE (h:Host {id: $id})
 ON CREATE SET
+    h.owner_id           = $owner_id,
     h.ip_address        = $ip_address,
     h.hostname          = $hostname,
     h.os                = $os,
@@ -50,7 +51,7 @@ RETURN h
 
 
 GET_HOST_BY_ID = """
-MATCH (h:Host {id: $id})
+MATCH (h:Host {id: $id, owner_id: $owner_id})
 OPTIONAL MATCH (h)-[:RUNS]->(s:Service)
 OPTIONAL MATCH (h)-[:HAS_VULNERABILITY]->(v:Vulnerability)
 RETURN h,
@@ -60,13 +61,13 @@ RETURN h,
 
 
 GET_HOST_BY_IP = """
-MATCH (h:Host {ip_address: $ip_address})
+MATCH (h:Host {ip_address: $ip_address, owner_id: $owner_id})
 RETURN h
 """
 
 
 GET_ALL_HOSTS = """
-MATCH (h:Host)
+MATCH (h:Host {owner_id: $owner_id})
 OPTIONAL MATCH (h)-[:HAS_VULNERABILITY]->(v:Vulnerability)
 WITH h, count(v) AS vuln_count
 RETURN h, vuln_count
@@ -77,7 +78,7 @@ LIMIT $limit
 
 
 GET_INTERNET_FACING_HOSTS = """
-MATCH (h:Host {is_internet_facing: true})
+MATCH (h:Host {is_internet_facing: true, owner_id: $owner_id})
 OPTIONAL MATCH (h)-[:RUNS]->(s:Service)
 OPTIONAL MATCH (h)-[:HAS_VULNERABILITY]->(v:Vulnerability)
 WITH h,
@@ -323,6 +324,7 @@ BULK_MERGE_HOSTS = """
 UNWIND $rows AS row
 MERGE (h:Host {id: row.id})
 ON CREATE SET
+    h.owner_id           = $owner_id,
     h.ip_address         = row.ip_address,
     h.hostname           = row.hostname,
     h.os                 = row.os,
@@ -369,5 +371,34 @@ ON CREATE SET
     r.scanner       = row.scanner,
     r.confirmed     = row.confirmed,
     r.discovered_at = datetime()
+RETURN count(r) AS merged_count
+"""
+
+
+BULK_MERGE_SERVICES = """
+UNWIND $rows AS row
+MERGE (s:Service {id: row.id})
+ON CREATE SET
+    s.name         = row.name,
+    s.port         = row.port,
+    s.protocol     = row.protocol,
+    s.version      = row.version,
+    s.banner       = row.banner,
+    s.is_encrypted = row.is_encrypted,
+    s.created_at   = datetime()
+ON MATCH SET
+    s.version      = row.version,
+    s.banner       = row.banner,
+    s.updated_at   = datetime()
+RETURN count(s) AS merged_count
+"""
+
+
+BULK_CREATE_RUNS_RELS = """
+UNWIND $rows AS row
+MATCH (h:Host {id: row.host_id})
+MATCH (s:Service {id: row.service_id})
+MERGE (h)-[r:RUNS]->(s)
+ON CREATE SET r.created_at = datetime()
 RETURN count(r) AS merged_count
 """
