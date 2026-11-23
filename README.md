@@ -1,181 +1,115 @@
 # AttackGraph AI
 
-AttackGraph AI is an AI-powered cyber attack path analysis platform.
-It combines:
-- **Neo4j** for attack graph modeling
-- **Qdrant** for semantic search over CVEs / asset context / threat intel
-- **Google Gemini** (via LangChain + LangGraph) for natural-language analysis and recommendations
+A cybersecurity project for exploring attack paths through a network graph and generating context-based explanations and remediation ideas.
 
-> Note: The `frontend/` in this repository is currently a **Git submodule** (not regular source code tracked inside this repo). The backend is fully contained under `backend/`.
+**Stack:** Python · FastAPI · Neo4j · Qdrant · LangChain · LangGraph · Gemini · Next.js · React Flow
 
-## What it does
+## What is implemented
 
-- Ingest and represent assets, services, vulnerabilities, and relationships as a graph
-- Compute attack paths, reachable systems, blast radius, and privilege escalation chains
-- Enrich results with semantic CVE and threat intel context using a vector database
-- Generate AI explanations, executive summaries, and remediation recommendations
+- FastAPI routes for graph queries, traversal, retrieval and AI analysis
+- Neo4j models and queries for hosts, services, vulnerabilities and their relationships
+- Qdrant integration for semantic retrieval
+- A LangGraph workflow for query understanding, graph traversal, context enrichment, path scoring and explanation generation
+- A Next.js dashboard with an interactive sample graph and an analysis request flow
 
----
+## Demo and scope
+
+The dashboard uses a seeded sample graph. The analysis flow calls a separately configured backend. A loaded dashboard alone does not confirm that the backend or AI service is available.
+
+This repository is an application project, not a validated security assessment tool. Sample data and generated explanations should not be treated as findings about a real network.
 
 ## Repository layout
 
-```
-.
-├── backend/                 # FastAPI backend (Neo4j + Qdrant + Gemini)
-├── frontend/                # Git submodule (UI code lives in a separate repo)
-└── README.md
-```
-
----
-
-## Backend (FastAPI)
-
-### Tech stack
-
-- **FastAPI** + **Uvicorn**
-- **Neo4j** (graph DB)
-- **Qdrant** (vector DB)
-- **Gemini**: `google-generativeai` + `langchain-google-genai`
-- **Orchestration**: LangChain + LangGraph
-- Optional: **Redis / Celery** (dependencies included)
-
-### Key folders
-
-```
+```text
 backend/
-├── app/
-│   ├── api/v1/              # Route handlers (HTTP layer)
-│   ├── agents/              # LangGraph agent(s)
-│   ├── core/                # Settings, logging, exceptions
-│   ├── graph/               # Neo4j client + schema/constraints
-│   ├── models/              # Pydantic request/response models
-│   ├── prompts/             # Prompt templates
-│   ├── services/            # Business logic (graph traversal, scoring, RAG)
-│   └── vectorstore/         # Qdrant client + collections
-├── scripts/                 # Helper scripts (ingestion/ops)
-├── requirements.txt
-└── .env.example
+  app/          API routes, graph queries, retrieval and analysis workflow
+  scripts/      Development data seed scripts
+frontend/
+  src/          Next.js app, dashboard, components and API client
 ```
 
-### App lifecycle
+Both backend and frontend source are tracked in this repository. The frontend is not a Git submodule in the reviewed version.
 
-On startup (`backend/app/main.py`):
-1. Connect to **Neo4j** and initialize schema/constraints
-2. Connect to **Qdrant** and initialize collections
+## Local setup
 
-On shutdown:
-- Cleanly disconnect from Neo4j and Qdrant
+These steps describe the current source configuration. The full stack has not been smoke-tested as part of this documentation update.
 
-### Configuration
+### Prerequisites
 
-Create your env file:
+- Python 3.11, matching `backend/.python-version`
+- Node.js and npm compatible with the Next.js version in `frontend/package.json`
+- Running Neo4j and Qdrant services
+- A Gemini API key with access to the configured generation and embedding models for AI features
 
-```bash
-cp backend/.env.example backend/.env
-```
+### Backend
 
-Most important variables:
+From the repository root:
 
-- `GEMINI_API_KEY` — required for AI analysis endpoints
-- `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`
-- `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_API_KEY` (optional for local)
-- `FRONTEND_URL` — used for CORS
-
-See: `backend/.env.example` for the full list.
-
-### Run backend locally
-
-```bash
+```sh
 cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\Activate.ps1
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-
 cp .env.example .env
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-API docs:
-- Swagger: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
+On Windows, activate with `.venv\Scripts\activate` instead.
 
----
+Update `.env` with your own local database settings and API key. Keep it out of version control. Change all example secrets before any deployment. Disable optional tracing unless you intend to use it.
 
-## API overview (v1)
+Important settings:
 
-Base path: `/api/v1`
+| Setting | Purpose |
+|---|---|
+| `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` | Graph database connection |
+| `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_API_KEY` | Vector database connection |
+| `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_EMBEDDING_MODEL` | AI generation and embeddings |
+| `EMBEDDING_DIMENSIONS` | Must match the configured embedding model and vector collections |
 
-### Health
-- `GET /health` — checks Neo4j + Qdrant connectivity
+Then start the API:
 
-### Graph
-Prefix: `/graph`
-- `GET /graph/summary` — counts by node/relationship type
-- `GET /graph/hosts` — paginated hosts
-- `GET /graph/hosts/internet-facing` — internet-exposed hosts
-- `GET /graph/hosts/{host_id}` — host detail (services + vulns)
-- `GET /graph/hosts/{host_id}/blast-radius` — blast radius (simple)
-- `GET /graph/attack-paths` — paths from source to target (optional)
-- `GET /graph/attack-paths/to-database` — paths from internet → any DB
-- `GET /graph/attack-paths/critical` — highest-risk ranked paths
-- `GET /graph/risk/highest-risk-nodes` — hosts ranked by risk score
-- `GET /graph/vulnerabilities/exploitable` — exploitable vulns
+```sh
+uvicorn app.main:app --reload --port 8000
+```
 
-### Traversal
-Prefix: `/traversal`
-- `GET /traversal/reachable/{host_id}` — all reachable nodes within hops
-- `GET /traversal/reachable/{host_id}/by-type/{node_type}` — filter reachable by type
-- `GET /traversal/reachable/reverse/{target_id}` — entry points that can reach target
-- `GET /traversal/shortest-path` — shortest path between two nodes
-- `GET /traversal/shortest-path/all` — all equally-short paths
-- `GET /traversal/vulnerable-hosts` — hosts ranked by composite risk score
-- `GET /traversal/vulnerable-hosts/unpatched` — hosts with unapplied patches
-- `GET /traversal/blast-radius/{host_id}` — detailed blast radius report
-- `GET /traversal/escalation/chains` — privilege escalation chains
-- `GET /traversal/escalation/to-root` — internet entry → root/admin paths
-- `GET /traversal/escalation/service-accounts` — service-account escalation
-- `GET /traversal/escalation/cross-subnet` — cross-subnet escalation
+The application connects to Neo4j and Qdrant during startup. Open `http://localhost:8000/docs` for the interactive API reference.
 
-### RAG (Vector search + Graph RAG)
-Prefix: `/rag`
-- `POST /rag/analyze` — build Graph RAG context (paths + Qdrant enrichment)
-- `GET /rag/search/cves` — semantic CVE search
-- `GET /rag/search/assets` — semantic asset search
-- `GET /rag/search/intel` — semantic threat intel search
-- `GET /rag/search/all` — search across all vector collections
-- `POST /rag/ingest/cve` — store CVE into Qdrant
-- `POST /rag/ingest/intel` — store threat intel into Qdrant
+### Frontend
 
-### AI Analysis (LangGraph agent)
-Prefix: `/analysis`
-- `POST /analysis/analyze` — full AI attack-path analysis (JSON response)
-- `POST /analysis/analyze/stream` — streaming analysis via SSE
+In another terminal, from the repository root:
 
----
+```sh
+cd frontend
+npm ci
+npm run dev
+```
 
-## Frontend
+The API client defaults to `http://localhost:8000`. Set `NEXT_PUBLIC_API_URL` in `frontend/.env.local` when the backend is elsewhere, and restart the frontend after changing it. Open `http://localhost:3000`.
 
-`frontend/` is configured as a **Git submodule** in this repo.
+### Development data
 
-To document the frontend properly here, we need one of the following:
-1. The **frontend submodule repository URL** (from `.gitmodules`), or
-2. You convert the submodule into actual code committed in this repo.
+Inspect `backend/scripts/seed_graph.py` and `backend/scripts/seed_qdrant.py` before running them against a local development database. They write sample data; do not run them against a database containing real or valuable data. The Qdrant seed flow requires Gemini access and may incur API charges.
 
-Once the submodule target repo is known, the README can include:
-- Pages/routes and UI features
-- API integration details (base URL, SSE streaming)
-- Environment variables and dev scripts
+## Selected API routes
 
----
+The full route schemas are available in the local Swagger UI.
 
-## Troubleshooting
+| Area | Example |
+|---|---|
+| Health | `GET /api/v1/health` |
+| Graph summary | `GET /api/v1/graph/summary` |
+| Reachability | `GET /api/v1/traversal/reachable/{host_id}` |
+| Shortest path | `GET /api/v1/traversal/shortest-path` |
+| Retrieval | `POST /api/v1/rag/analyze` |
+| AI analysis | `POST /api/v1/analysis/analyze` |
 
-- **CORS errors**: ensure `FRONTEND_URL` in `backend/.env` matches the frontend origin.
-- **Neo4j/Qdrant degraded health**: verify services are running and creds/hosts are correct.
-- **Gemini errors**: confirm `GEMINI_API_KEY` is set and has quota.
+## Current limitations and next steps
 
----
+- The dashboard's displayed graph is seeded, rather than evidence of a live graph query.
+- No test suite, CI workflow or Docker/Compose configuration was present in the reviewed public tree.
+- Performance claims need a reproducible benchmark, dataset description and recorded results before being presented as verified measurements.
+- Deployment security, authentication coverage and CORS policy need a separate review before real-world use.
 
 ## License
 
-Add your license here.
+No license has been selected for this repository. A license should be added only after the owner chooses its terms.
